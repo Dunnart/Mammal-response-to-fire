@@ -64,7 +64,7 @@ print(cor_matrix)
 corrplot(cor_matrix, method = "color")
 
 # Set a threshold for identifying strong correlations
-threshold <- 0.6
+threshold <- 0.65
 
 # Find highly correlated variable pairs
 high_correlation <- which(abs(cor_matrix) > threshold & cor_matrix < 1 & !is.na(cor_matrix), arr.ind = TRUE)
@@ -161,7 +161,7 @@ FoxGlobalTD<- glmer(cbind(FoxDet,FoxNotDet) ~
                       scale(DistanceNearestTown) * BeforeAfterFire + 
                       scale(DistanceNearestRoad) * BeforeAfterFire + 
                       scale(Elevation) * BeforeAfterFire + 
-                      scale(TPI1000) * BeforeAfterFire +
+                      #scale(TPI1000) * BeforeAfterFire +
                       scale(NDVI100) * BeforeAfterFire +
                       #BurnTreatment * BeforeAfterFire +
                       scale(PercentAreaBurnt) * BeforeAfterFire +
@@ -174,6 +174,7 @@ FoxGlobalTD<- glmer(cbind(FoxDet,FoxNotDet) ~
                     data = FoxRR,  
                     control = glmerControl(optimizer = "bobyqa")) 
 
+# Perhaps I should combine the prey activity predictors to reduce the number of predictors in the model?
 
 summary(FoxGlobalTD)
 plot(predictorEffects(FoxGlobalTD))
@@ -211,9 +212,11 @@ BestFoxModel <- (get.models(FoxDredge2, 1)[[1]])
 confint(get.models(FoxDredge2, 1)[[1]])
 plot(predictorEffects(get.models(FoxDredge2, 1)[[1]]))
 
-# Summary of '2nd best' model from dredge
-summary(get.models(FoxDredge2, 2)[[1]])
-plot(predictorEffects(get.models(FoxDredge2, 2)[[1]]))
+# Rank the top models based on AICc
+ranked_models <- model.sel(FoxDredge2)
+
+# Plot the model selection table
+plot(ranked_models)
 
 summary(BestFoxModel)
 
