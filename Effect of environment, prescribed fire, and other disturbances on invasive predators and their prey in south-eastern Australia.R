@@ -93,6 +93,9 @@ if (nrow(high_correlation) > 0) {
 FoxRR = read.csv("SiteSpecificCovariates.csv", stringsAsFactors = T)
 str(FoxRR)
 
+hist(FoxRR$FoxDet, 20) # Lots of zeroes
+nrow(subset(FoxRR, FoxDet == 0))
+
 # Do LocalPlacement and AvgNightsSinceBaited influence detections? 
 # If yes, they will be included as fixed effects in the global model.
 
@@ -104,6 +107,19 @@ FoxModel1[[1]] <- glmer(cbind(FoxDet,FoxNotDet) ~
                           family = binomial, 
                           data = FoxRR, 
                           control = glmerControl(optimizer="bobyqa"))
+simulateResiduals(FoxModel1[[1]], plot = TRUE)
+testDispersion(FoxModel1[[1]]) # slightly overdispersed
+
+# what about fitting a model with a zero inflation term in glmmTMB
+ziFoxModel <- glmmTMB(cbind(FoxDet,FoxNotDet) ~ 
+                          1 + 
+                          (1|Cam), 
+                        family = binomial, 
+                        zi = ~1,
+                        data = FoxRR)
+simulateResiduals(ziFoxModel, plot = TRUE) # looks nicer
+testDispersion(ziFoxModel)
+
 
 FoxModel1[[2]] <- glmer(cbind(FoxDet,FoxNotDet) ~ 
                             LocalPlacement + 
@@ -135,9 +151,9 @@ FoxModel1names <- paste(c("1. Intercept",
                             "3. Nights since baited", 
                             "4. Local placement + Nights since baited"))
 
-FoxTable1 <- aictab(cand.set = FoxModel1, 
+(FoxTable1 <- aictab(cand.set = FoxModel1, 
                       modnames = FoxModel1names, 
-                      sort = T)
+                      sort = T))
 
 FoxTable1
 
@@ -177,6 +193,9 @@ FoxGlobalTD<- glmer(cbind(FoxDet,FoxNotDet) ~
 # Perhaps I should combine the prey activity predictors to reduce the number of predictors in the model?
 
 summary(FoxGlobalTD)
+simulateResiduals(FoxGlobalTD, plot = T)
+testDispersion(FoxGlobalTD) # slightly overdispersed
+
 plot(predictorEffects(FoxGlobalTD))
 
 # Check for singularity
@@ -210,7 +229,8 @@ sw(FoxDredge2)
 summary(get.models(FoxDredge2, 1)[[1]])
 BestFoxModel <- (get.models(FoxDredge2, 1)[[1]])
 confint(get.models(FoxDredge2, 1)[[1]])
-plot(predictorEffects(get.models(FoxDredge2, 1)[[1]]))
+plot(predictorEffects(get.models(FoxDredge2, 2)[[1]]))
+simulateResiduals(get.models(FoxDredge2, 1)[[1]], plot = T)
 
 # Rank the top models based on AICc
 ranked_models <- model.sel(FoxDredge2)
