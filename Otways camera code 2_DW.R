@@ -22,10 +22,11 @@ library(reshape2)
 library(ggplot2)
 library(cowplot)
 library(tictoc)
+library(snow)
 
 # ____________________________________________________________________________________
 # Read in the data and scale the numerical predictor variables
-cam_df = read.csv("SiteSpecificCovariates v2.csv", stringsAsFactors = T)
+cam_df = read.csv("SiteSpecificCovariates v3.csv", stringsAsFactors = T)
 
 
 vars_to_scale = c("NumberOfFires100Yrs", 
@@ -33,16 +34,11 @@ vars_to_scale = c("NumberOfFires100Yrs",
                   "DistanceNearestTown",
                   "DistanceNearestRoad",
                   "DistanceNearestFarm",
-                  "Elevation",
                   "TPI100",
-                  "TPI1000",
                   "PercentAreaBurnt",
-                  "DistanceBurnEdge",
                   "NDVI100",
                   "PreyActivityLargeMammal",
-                  "PreyActivityMediumBird",
-                  "PreyActivityMediumMammal",
-                  "PreyActivitySmallBird",
+                  "PreyActivityBird",
                   "PreyActivitySmallMammal",
                   "AvgNightsSinceBaited")
 
@@ -58,6 +54,8 @@ str(cam_df2)
 
 
 # ____________________________________________________________________________________
+
+
 #### Collinearity check ####
 
 # Here I create a matrix for subsetting dredge later where the cutoff is r = 0.5
@@ -66,18 +64,13 @@ cor.matrix <- abs(cor(cam_df2[, c("scaled_NumberOfFires100Yrs",
                             "scaled_DistanceNearestTown",
                             "scaled_DistanceNearestRoad",
                             "scaled_DistanceNearestFarm",
-                            "scaled_Elevation",
                             "scaled_TPI100",
-                            "scaled_TPI1000",
-                            "scaled_PercentAreaBurnt",
-                            "scaled_DistanceBurnEdge",
                             "scaled_NDVI100",
                             "scaled_PreyActivityLargeMammal",
-                            "scaled_PreyActivityMediumBird",
-                            "scaled_PreyActivityMediumMammal",
-                            "scaled_PreyActivitySmallBird",
+                            "scaled_PreyActivityBird",
                             "scaled_PreyActivitySmallMammal",
                             "scaled_AvgNightsSinceBaited")])) <= .5
+
 cor.matrix[!lower.tri(cor.matrix)] <- NA
 
 # glmmTMB names the model terms like cond(LocalPlacement), so we need to rename this matrix
@@ -94,7 +87,10 @@ rownames(cor.matrix) <- sapply(rownames(cor.matrix), add_cond_prefix)
 
 cor.matrix 
 
+
 # ____________________________________________________________________________________
+
+
 #### Red fox ####
 
 # Check the distribution of the data
@@ -120,7 +116,7 @@ bbFoxModel <- glmmTMB(cbind(FoxDet,FoxNotDet) ~
                         (1|Cam)  + (1|Session), 
                       family = betabinomial, 
                       data = cam_df2)
-simulateResiduals(ziFoxModel, plot = TRUE) # looks much nicer
+simulateResiduals(bbFoxModel, plot = TRUE) # looks much nicer
 testDispersion(bbFoxModel)
 
 FoxModel1[[1]] = bbFoxModel
@@ -171,8 +167,9 @@ which(colnames(cam_df2) == "LandscapePlacement")
 which(colnames(cam_df2) == "BurnTreatment")
 which(colnames(cam_df2) == "BurnSession")
 which(colnames(cam_df2) == "FireSeverity")
+which(colnames(cam_df2) == "Treatment_BA")
 
-cam_df2_long = reshape2::melt(cam_df2, id.vars = c(1:26,31, 36, 37, 40, 41, 43))
+cam_df2_long = reshape2::melt(cam_df2, id.vars = c(1:27,32, 37, 38, 41, 42, 44, 6))
 head(cam_df2_long)
 str(cam_df2_long)
 levels(cam_df2_long$variable)
@@ -183,14 +180,11 @@ ggplot(subset(cam_df2_long, variable %in%
                   "DistanceNearestTown",
                   "DistanceNearestRoad",
                   "DistanceNearestFarm",
-                  "Elevation",
-                  "DistanceBurnEdge",
                   "NDVI100",
                   "PercentAreaBurnt",
                   "PreyActivityLargeMammal",
-                  "PreyActivityMediumMammal",
                   "PreyActivitySmallMammal",
-                  "PreyActivitySmallBird")),
+                  "PreyActivityBird")),
   aes(x = value, y = FoxDet/FoxNotDet, group = BeforeAfterFire)) +
   geom_point(aes(colour=BeforeAfterFire),shape = 21) +
   geom_smooth(aes(colour = BeforeAfterFire)) +
@@ -200,27 +194,23 @@ ggplot(subset(cam_df2_long, variable %in%
 ## Fox global model
 FoxGlobal = glmmTMB(cbind(FoxDet,FoxNotDet) ~ 
                       LocalPlacement +
-                      HabitatType * BeforeAfterFire +
-                      scaled_PreyActivitySmallMammal * BeforeAfterFire +
-                      scaled_PreyActivityMediumMammal * BeforeAfterFire +
-                      scaled_PreyActivitySmallBird * BeforeAfterFire +
-                      scaled_PreyActivityLargeMammal * BeforeAfterFire + 
-                      scaled_DistanceNearestFarm * BeforeAfterFire +
-                      scaled_DistanceNearestTown * BeforeAfterFire + 
-                      scaled_DistanceNearestRoad * BeforeAfterFire + 
-                      scaled_Elevation * BeforeAfterFire + 
-                      scaled_NDVI100 * BeforeAfterFire +
-                      BurnTreatment * BeforeAfterFire +
-                      scaled_PercentAreaBurnt * BeforeAfterFire +
-                      #scaled_DistanceBurnEdge * BeforeAfterFire +
-                      scaled_YrsSincePreviousFire * BeforeAfterFire +
-                      scaled_NumberOfFires100Yrs * BeforeAfterFire +
+                      HabitatType * Treatment_BA +
+                      scaled_PreyActivitySmallMammal * Treatment_BA +
+                      scaled_PreyActivityBird * Treatment_BA +
+                      scaled_PreyActivityLargeMammal * Treatment_BA + 
+                      scaled_DistanceNearestFarm * Treatment_BA +
+                      scaled_DistanceNearestTown * Treatment_BA + 
+                      scaled_DistanceNearestRoad * Treatment_BA + 
+                      scaled_TPI100 * Treatment_BA + 
+                      scaled_NDVI100 * Treatment_BA +
+                      scaled_PercentAreaBurnt * Treatment_BA +
+                      scaled_YrsSincePreviousFire * Treatment_BA +
+                      #scaled_NumberOfFires100Yrs * Treatment_BA +
                       (1|Cam) +
                       (1|Session),
                     family = betabinomial, # compare the residual tests for binomial vs betabinomial
                     data = cam_df2) 
 
-# Perhaps I should combine the prey activity predictors to reduce the number of predictors in the model?
 
 summary(FoxGlobal)
 simulateResiduals(FoxGlobal, plot = T) 
