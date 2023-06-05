@@ -25,6 +25,7 @@ library(tictoc)
 library(snow)
 
 # ____________________________________________________________________________________
+
 # Read in the data and scale the numerical predictor variables
 cam_df = read.csv("SiteSpecificCovariates v3.csv", stringsAsFactors = T)
 
@@ -250,6 +251,156 @@ summary(get.models(FoxDredge, 8)[[1]])
 summary(get.models(FoxDredge, 9)[[1]])
 
 
-
-
 # ____________________________________________________________________________________
+
+
+
+#### Feral Cat ####
+
+# Check the distribution of the data
+hist(cam_df2$CatDet, 20) # Lots of zeroes
+nrow(subset(cam_df2, CatDet == 0))
+
+# Do LocalPlacement and AvgNightsSinceBaited influence detections? 
+# If yes, they will be included as fixed effects in the global model.
+
+CatModel1<-list()
+
+CatModel1[[1]] <- glmmTMB(cbind(CatDet,CatNotDet) ~ 
+                            1 + 
+                            (1|Cam) + (1|Session), 
+                          family = binomial, 
+                          data = cam_df2)
+simulateResiduals(CatModel1[[1]], plot = TRUE)
+testDispersion(CatModel1[[1]]) # slightly overdispersed
+
+CatModel1[[1]]
+
+CatModel1[[2]] <- glmmTMB(cbind(CatDet,CatNotDet) ~ 
+                            LocalPlacement + 
+                            (1|Cam)  + (1|Session), 
+                          family = betabinomial, 
+                          data = cam_df2); summary(CatModel1[[2]])
+
+CatModel1[[3]] <- glmmTMB(cbind(CatDet,CatNotDet) ~ 
+                            scaled_AvgNightsSinceBaited + 
+                            (1|Cam)  + (1|Session), 
+                          family = betabinomial,
+                          data = cam_df2); summary(CatModel1[[3]])
+
+CatModel1[[4]] <- glmmTMB(cbind(CatDet,CatNotDet) ~ 
+                            LocalPlacement + 
+                            scaled_AvgNightsSinceBaited + 
+                            (1|Cam)  + (1|Session), 
+                          family = betabinomial, 
+                          data = cam_df2); summary(CatModel1[[4]])
+
+CatModel1names <- paste(c("1. Intercept",
+                          "2. Local placement",
+                          "3. Nights since baited", 
+                          "4. Local placement + Nights since baited"))
+
+(CatTable1 <- aictab(cand.set = CatModel1, 
+                     modnames = CatModel1names, 
+                     sort = T))
+
+# How much better is the top model vs the 2nd top model?
+evidence(CatTable1, 
+         model.high = "2. Local placement",
+         model.low = "4. Local placement + Nights since baited")
+
+# Yes, LocalPlacement is important. This model is x2.8 better than the next model. 
+# Local placment will be included as a fixed effect in the global model dredge.
+
+
+## Cat make some exploratory plots
+str(cam_df2)
+which(colnames(cam_df2) == "CatNotDet")
+which(colnames(cam_df2) == "HabitatType")
+which(colnames(cam_df2) == "LocalPlacement")
+which(colnames(cam_df2) == "LandscapePlacement")
+which(colnames(cam_df2) == "BurnTreatment")
+which(colnames(cam_df2) == "BurnSession")
+which(colnames(cam_df2) == "FireSeverity")
+which(colnames(cam_df2) == "Treatment_BA")
+
+cam_df2_long = reshape2::melt(cam_df2, id.vars = c(1:27,32, 37, 38, 41, 42, 44, 6))
+head(cam_df2_long)
+str(cam_df2_long)
+levels(cam_df2_long$variable)
+
+ggplot(subset(cam_df2_long, variable %in% 
+                c("NumberOfFires100Yrs",
+                  "YrsSincePreviousFire",
+                  "DistanceNearestTown",
+                  "DistanceNearestRoad",
+                  "DistanceNearestFarm",
+                  "NDVI100",
+                  "PercentAreaBurnt",
+                  "PreyActivityLargeMammal",
+                  "PreyActivitySmallMammal",
+                  "PreyActivityBird")),
+       aes(x = value, y = CatDet/CatNotDet, group = BeforeAfterFire)) +
+  geom_point(aes(colour=BeforeAfterFire),shape = 21) +
+  geom_smooth(aes(colour = BeforeAfterFire)) +
+  facet_wrap(~variable, scales = "free") +
+  theme_cowplot()
+
+## Cat global model
+CatGlobal = glmmTMB(cbind(CatDet,CatNotDet) ~ 
+                      LocalPlacement +
+                      HabitatType * Treatment_BA +
+                      scaled_PreyActivitySmallMammal * Treatment_BA +
+                      scaled_PreyActivityBird * Treatment_BA +
+                      scaled_PreyActivityLargeMammal * Treatment_BA + 
+                      scaled_DistanceNearestFarm * Treatment_BA +
+                      scaled_DistanceNearestTown * Treatment_BA + 
+                      scaled_DistanceNearestRoad * Treatment_BA + 
+                      scaled_TPI100 * Treatment_BA + 
+                      scaled_NDVI100 * Treatment_BA +
+                      scaled_PercentAreaBurnt * Treatment_BA +
+                      scaled_YrsSincePreviousFire * Treatment_BA +
+                      #scaled_NumberOfFires100Yrs * Treatment_BA +
+                      (1|Cam) +
+                      (1|Session),
+                    family = betabinomial, # compare the residual tests for binomial vs betabinomial
+                    data = cam_df2) 
+
+
+summary(CatGlobal)
+simulateResiduals(CatGlobal, plot = T) 
+# don't worry too much if this huge global model looks a bit funny. we're not using it for inference
+testDispersion(CatGlobal) 
+
+
+# Dredge the global model. This does model selection by systematically fitting 
+# and comparing different model combinations, considering all possible 
+# predictor variable subsets and their interactions.
+
+options(na.action = "na.fail") 
+tic() # run these two either side of a function to find out how long it takes. must run at the same time
+CatDredge <- dredge(CatGlobal, 
+                    m.lim = c(0, 8),
+                    fixed = c("cond(LocalPlacement)"),
+                    subset = cor.matrix)
+toc()
+
+CatDredge
+subset(CatDredge,delta <= 2,recalc.weights = FALSE)
+
+subset(CatDredge, is.na(delta),recalc.weights = FALSE) # find models that didn't converge
+
+summary(get.models(CatDredge, 1)[[1]])
+plot(predictorEffects(get.models(CatDredge, 1)[[1]]))
+simulateResiduals(get.models(CatDredge, 1)[[1]], plot = T)
+
+
+summary(get.models(CatDredge, 2)[[1]])
+summary(get.models(CatDredge, 3)[[1]])
+summary(get.models(CatDredge, 4)[[1]])
+summary(get.models(CatDredge, 5)[[1]])
+summary(get.models(CatDredge, 6)[[1]])
+summary(get.models(CatDredge, 7)[[1]])
+summary(get.models(CatDredge, 8)[[1]])
+summary(get.models(CatDredge, 9)[[1]])
+
