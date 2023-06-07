@@ -13,7 +13,6 @@
 #### Packages ####
 
 library(corrplot)
-library(lme4)
 library(effects)
 library(AICcmodavg)
 library(MuMIn)
@@ -22,6 +21,7 @@ library(reshape2)
 library(ggplot2)
 library(cowplot)
 library(tictoc)
+library(glmmTMB)
 
 # ____________________________________________________________________________________
 # Read in the data and scale the numerical predictor variables
@@ -120,7 +120,7 @@ bbFoxModel <- glmmTMB(cbind(FoxDet,FoxNotDet) ~
                         (1|Cam)  + (1|Session), 
                       family = betabinomial, 
                       data = cam_df2)
-simulateResiduals(ziFoxModel, plot = TRUE) # looks much nicer
+simulateResiduals(bbFoxModel, plot = TRUE) # looks much nicer
 testDispersion(bbFoxModel)
 
 FoxModel1[[1]] = bbFoxModel
@@ -202,7 +202,7 @@ FoxGlobal = glmmTMB(cbind(FoxDet,FoxNotDet) ~
                       LocalPlacement +
                       HabitatType * BeforeAfterFire +
                       scaled_PreyActivitySmallMammal * BeforeAfterFire +
-                      scaled_PreyActivityMediumMammal * BeforeAfterFire +
+                  #   scaled_PreyActivityMediumMammal * BeforeAfterFire +
                       scaled_PreyActivitySmallBird * BeforeAfterFire +
                       scaled_PreyActivityLargeMammal * BeforeAfterFire + 
                       scaled_DistanceNearestFarm * BeforeAfterFire +
@@ -210,23 +210,20 @@ FoxGlobal = glmmTMB(cbind(FoxDet,FoxNotDet) ~
                       scaled_DistanceNearestRoad * BeforeAfterFire + 
                       scaled_Elevation * BeforeAfterFire + 
                       scaled_NDVI100 * BeforeAfterFire +
-                      BurnTreatment * BeforeAfterFire +
+                     BurnTreatment * BeforeAfterFire +
                       scaled_PercentAreaBurnt * BeforeAfterFire +
-                      #scaled_DistanceBurnEdge * BeforeAfterFire +
+              #       scaled_DistanceBurnEdge * BeforeAfterFire +
                       scaled_YrsSincePreviousFire * BeforeAfterFire +
-                      scaled_NumberOfFires100Yrs * BeforeAfterFire +
+                #     scaled_NumberOfFires100Yrs * BeforeAfterFire +
                       (1|Cam) +
                       (1|Session),
                     family = betabinomial, # compare the residual tests for binomial vs betabinomial
                     data = cam_df2) 
 
-# Perhaps I should combine the prey activity predictors to reduce the number of predictors in the model?
-
 summary(FoxGlobal)
 simulateResiduals(FoxGlobal, plot = T) 
 # don't worry too much if this huge global model looks a bit funny. we're not using it for inference
 testDispersion(FoxGlobal) 
-
 
 # Dredge the global model. This does model selection by systematically fitting 
 # and comparing different model combinations, considering all possible 
@@ -235,15 +232,12 @@ testDispersion(FoxGlobal)
 options(na.action = "na.fail") 
 tic() # run these two either side of a function to find out how long it takes. must run at the same time
 FoxDredge <- dredge(FoxGlobal, 
-                     m.lim = c(0, 8),
+                     m.lim = c(0, 4),
                     fixed = c("cond(LocalPlacement)"),
                      subset = cor.matrix)
 toc()
 
-FoxDredge
-subset(FoxDredge,delta <= 2,recalc.weights = FALSE)
 
-subset(FoxDredge, is.na(delta),recalc.weights = FALSE) # find models that didn't converge
 
 summary(get.models(FoxDredge, 1)[[1]])
 plot(predictorEffects(get.models(FoxDredge, 1)[[1]]))
@@ -258,6 +252,54 @@ summary(get.models(FoxDredge, 6)[[1]])
 summary(get.models(FoxDredge, 7)[[1]])
 summary(get.models(FoxDredge, 8)[[1]])
 summary(get.models(FoxDredge, 9)[[1]])
+
+
+
+## parallel dredging ##
+library(parallel)
+library(snow)
+
+# Detect number of cores and create cluster (leave one out to not overwhelm pc)
+nCores <- detectCores() - 1
+my_clust <- makeCluster(nCores, type = "SOCK")
+
+# Export all objects to be used to all the cores in the cluster
+clusterExport(my_clust, list("FoxGlobal","cam_df2","cor.matrix"))
+
+# Load packages to be used
+clusterEvalQ(my_clust,library(MuMIn,logical.return =T))
+clusterEvalQ(my_clust,library(glmmTMB,logical.return =T))
+
+tic()
+all_mods = MuMIn::dredge(FoxGlobal, 
+                         m.lim = c(0, 8),
+                         fixed = c("cond(LocalPlacement)"),
+                         subset = cor.matrix, 
+                         evaluate = TRUE,
+                         trace=2, 
+                         cluster=my_clust)
+toc()
+
+all_mods
+all_mods2 = model.sel(all_mods)
+subset(all_mods,delta <= 2,recalc.weights = FALSE)
+
+subset(all_mods, is.na(AICc),recalc.weights = FALSE) # find models that didn't converge
+
+
+summary(get.models(all_mods, 1)[[1]])
+plot(predictorEffects(get.models(all_mods, 1)[[1]]))
+simulateResiduals(get.models(all_mods, 1)[[1]], plot = T)
+plot(predictorEffects(get.models(all_mods, 1)[[1]]))
+
+summary(get.models(all_mods, 2)[[1]])
+summary(get.models(all_mods, 3)[[1]])
+summary(get.models(all_mods, 4)[[1]])
+summary(get.models(all_mods, 5)[[1]])
+summary(get.models(all_mods, 6)[[1]])
+summary(get.models(all_mods, 7)[[1]])
+summary(get.models(all_mods, 8)[[1]])
+summary(get.models(all_mods, 9)[[1]])
 
 
 

@@ -55,6 +55,72 @@ new_var_names = paste0("scaled_", vars_to_scale)
 cam_df2 <- cbind(cam_df, setNames(as.data.frame(scaled_vars), new_var_names))
 str(cam_df2)
 
+# Simplify the Treatment_BA variable for easier interpretation of plots
+cam_df2$trt_ba = dplyr::recode(cam_df2$Treatment_BA,
+                                      "Burnt_After" = "burn_AF",    
+                                      "Burnt_Before" = "burn_BE",   
+                                      "Unburnt_After"  = "unburn_AF",
+                                      "Unburnt_Before" = "unburn_BE")
+summary(cam_df2$trt_ba)
+
+# Convert HabitatType to a numerical variable for correlation
+cam_df2$HabitatType_num = as.numeric(cam_df2$HabitatType)
+
+
+# Check the distribution of predictor variables
+str(cam_df2)
+which(colnames(cam_df2) == "FoxNotDet")
+which(colnames(cam_df2) == "HabitatType")
+which(colnames(cam_df2) == "LocalPlacement")
+which(colnames(cam_df2) == "LandscapePlacement")
+which(colnames(cam_df2) == "BurnTreatment")
+which(colnames(cam_df2) == "BurnSession")
+which(colnames(cam_df2) == "FireSeverity")
+which(colnames(cam_df2) == "trt_ba")
+which(colnames(cam_df2) == "HabitatType_num")
+
+cam_df2_long = reshape2::melt(cam_df2, id.vars = c(1:27,32, 37, 38, 41, 42, 44, 64, 65))
+head(cam_df2_long)
+str(cam_df2_long)
+levels(cam_df2_long$variable)
+
+levels(cam_df2_long$variable)
+ggplot(subset(cam_df2_long, variable %in% c("scaled_NumberOfFires100Yrs",
+                                            "scaled_YrsSincePreviousFire",
+                                            "scaled_DistanceNearestTown",
+                                            "scaled_DistanceNearestRoad",
+                                            "scaled_DistanceNearestFarm",
+                                            "scaled_TPI100",
+                                            "scaled_PercentAreaBurnt",
+                                            "scaled_NDVI100",
+                                            "scaled_PreyActivityLargeMammal",
+                                            "scaled_PreyActivityBird",
+                                            "scaled_PreyActivitySmallMammal")),
+       aes(x = value)) +
+  geom_histogram() +
+  facet_wrap(~variable) +
+  theme_cowplot()
+
+# Plot the prey variables on their original scales
+ggplot(subset(cam_df2_long, variable %in% c("PreyActivityLargeMammal",
+                                            "PreyActivityBird",
+                                            "PreyActivitySmallMammal")),
+       aes(x = value)) +
+  geom_histogram() +
+  facet_wrap(~variable, scales="free") +
+  theme_cowplot()
+
+# Plot them as log transformed
+ggplot(subset(cam_df2_long, variable %in% c("PreyActivityLargeMammal",
+                                            "PreyActivityBird",
+                                            "PreyActivitySmallMammal")),
+       aes(x = log(value))) +
+  geom_histogram() +
+  facet_wrap(~variable, scales="free") +
+  theme_cowplot()
+
+# I would consider using log transformed prey variables as predictors to reduce the influence of those outliers
+# you need to log transform the variables before applying to scaling further up
 
 # ____________________________________________________________________________________
 
@@ -72,7 +138,8 @@ cor.matrix <- abs(cor(cam_df2[, c("scaled_NumberOfFires100Yrs",
                             "scaled_PreyActivityLargeMammal",
                             "scaled_PreyActivityBird",
                             "scaled_PreyActivitySmallMammal",
-                            "scaled_AvgNightsSinceBaited")])) <= .5
+                            "scaled_AvgNightsSinceBaited",
+                            "HabitatType_num")])) <= .5
 
 cor.matrix[!lower.tri(cor.matrix)] <- NA
 
@@ -163,21 +230,6 @@ evidence(FoxTable1,
 
 
 ## Fox make some exploratory plots
-str(cam_df2)
-which(colnames(cam_df2) == "FoxNotDet")
-which(colnames(cam_df2) == "HabitatType")
-which(colnames(cam_df2) == "LocalPlacement")
-which(colnames(cam_df2) == "LandscapePlacement")
-which(colnames(cam_df2) == "BurnTreatment")
-which(colnames(cam_df2) == "BurnSession")
-which(colnames(cam_df2) == "FireSeverity")
-which(colnames(cam_df2) == "Treatment_BA")
-
-cam_df2_long = reshape2::melt(cam_df2, id.vars = c(1:27,32, 37, 38, 41, 42, 44, 6))
-head(cam_df2_long)
-str(cam_df2_long)
-levels(cam_df2_long$variable)
-
 ggplot(subset(cam_df2_long, variable %in% 
                 c("NumberOfFires100Yrs",
                   "YrsSincePreviousFire",
@@ -195,21 +247,25 @@ ggplot(subset(cam_df2_long, variable %in%
   facet_wrap(~variable, scales = "free") +
   theme_cowplot()
 
+# Make HabitatType_num a factor before fitting any models
+cam_df2$HabitatType_num = as.factor(cam_df2$HabitatType_num)
+summary(cam_df2$HabitatType_num) # you will need to remember which number represents which habitat
+
 ## Fox global model
 FoxGlobal = glmmTMB(cbind(FoxDet,FoxNotDet) ~ 
                       LocalPlacement +
-                      HabitatType +
-                      scaled_PreyActivitySmallMammal * Treatment_BA +
-                      scaled_PreyActivityBird * Treatment_BA +
-                      scaled_PreyActivityLargeMammal * Treatment_BA + 
-                      scaled_DistanceNearestFarm * Treatment_BA +
-                      scaled_DistanceNearestTown * Treatment_BA + 
-                      scaled_DistanceNearestRoad * Treatment_BA + 
-                      scaled_TPI100 * Treatment_BA + 
-                      scaled_NDVI100 * Treatment_BA +
-                      scaled_PercentAreaBurnt * Treatment_BA +
+                      HabitatType_num +
+                      scaled_PreyActivitySmallMammal * trt_ba +
+                      scaled_PreyActivityBird * trt_ba +
+                      scaled_PreyActivityLargeMammal * trt_ba + 
+                      scaled_DistanceNearestFarm * trt_ba +
+                      scaled_DistanceNearestTown * trt_ba + 
+                      scaled_DistanceNearestRoad * trt_ba + 
+                      scaled_TPI100 * trt_ba + 
+                      scaled_NDVI100 * trt_ba +
+                      scaled_PercentAreaBurnt * trt_ba +
                       scaled_YrsSincePreviousFire +
-                      scaled_NumberOfFires100Yrs * Treatment_BA +
+                      scaled_NumberOfFires100Yrs * trt_ba +
                       (1|Cam) +
                       (1|Session),
                     family = betabinomial, # compare the residual tests for binomial vs betabinomial
@@ -250,31 +306,35 @@ FoxDredge = MuMIn::dredge(FoxGlobal,
                           fixed = c("cond(LocalPlacement)"),
                           subset = cor.matrix,
                           trace = 2,
-                          cluster = my_clust)
+                          cluster = my_clust,
+                          evaluate = TRUE)
 
 toc()
 
 # Took 12 min to run
 
 FoxDredge # Doesn't give me the delta AIC value for each model
+FoxDredge$delta # why NAs?
+FoxDredge$weight # why NAs?
 subset(FoxDredge,delta <= 2,recalc.weights = FALSE)  # Can't get this bit of code to work (prob because there's no delta AIC column)
-subset(FoxDredge, is.na(delta),recalc.weights = FALSE) # find models that didn't converge
+subset(FoxDredge, is.na(AICc),recalc.weights = FALSE) # find models that didn't converge
 
 # Top model
 summary(get.models(FoxDredge, 1)[[1]])
 plot(predictorEffects(get.models(FoxDredge, 1)[[1]]))
 simulateResiduals(get.models(FoxDredge, 1)[[1]], plot = T)
-
+  
 # Other top models
 summary(get.models(FoxDredge, 2)[[1]])
 summary(get.models(FoxDredge, 3)[[1]])
 summary(get.models(FoxDredge, 4)[[1]])
 summary(get.models(FoxDredge, 5)[[1]])
+plot(predictorEffects(get.models(FoxDredge, 5)[[1]]))
 summary(get.models(FoxDredge, 6)[[1]])
 summary(get.models(FoxDredge, 7)[[1]])
 summary(get.models(FoxDredge, 8)[[1]])
 summary(get.models(FoxDredge, 9)[[1]])
-
+# I count 15 well supported models
 
 # ____________________________________________________________________________________
 
@@ -339,21 +399,6 @@ evidence(CatTable1,
 
 
 ## Cat make some exploratory plots
-str(cam_df2)
-which(colnames(cam_df2) == "CatNotDet")
-which(colnames(cam_df2) == "HabitatType")
-which(colnames(cam_df2) == "LocalPlacement")
-which(colnames(cam_df2) == "LandscapePlacement")
-which(colnames(cam_df2) == "BurnTreatment")
-which(colnames(cam_df2) == "BurnSession")
-which(colnames(cam_df2) == "FireSeverity")
-which(colnames(cam_df2) == "Treatment_BA")
-
-cam_df2_long = reshape2::melt(cam_df2, id.vars = c(1:27,32, 37, 38, 41, 42, 44, 6))
-head(cam_df2_long)
-str(cam_df2_long)
-levels(cam_df2_long$variable)
-
 ggplot(subset(cam_df2_long, variable %in% 
                 c("NumberOfFires100Yrs",
                   "YrsSincePreviousFire",
@@ -374,18 +419,18 @@ ggplot(subset(cam_df2_long, variable %in%
 ## Cat global model
 CatGlobal = glmmTMB(cbind(CatDet,CatNotDet) ~ 
                       LocalPlacement +
-                      HabitatType +
-                      scaled_PreyActivitySmallMammal * Treatment_BA +
-                      scaled_PreyActivityBird * Treatment_BA +
-                      scaled_PreyActivityLargeMammal * Treatment_BA + 
-                      scaled_DistanceNearestFarm * Treatment_BA +
-                      scaled_DistanceNearestTown * Treatment_BA + 
-                      scaled_DistanceNearestRoad * Treatment_BA + 
-                      scaled_TPI100 * Treatment_BA + 
-                      scaled_NDVI100 * Treatment_BA +
-                      scaled_PercentAreaBurnt * Treatment_BA +
+                      HabitatType_num +
+                      scaled_PreyActivitySmallMammal * trt_ba +
+                      scaled_PreyActivityBird * trt_ba +
+                      scaled_PreyActivityLargeMammal * trt_ba + 
+                      scaled_DistanceNearestFarm * trt_ba +
+                      scaled_DistanceNearestTown * trt_ba + 
+                      scaled_DistanceNearestRoad * trt_ba + 
+                      scaled_TPI100 * trt_ba + 
+                      scaled_NDVI100 * trt_ba +
+                      scaled_PercentAreaBurnt * trt_ba +
                       scaled_YrsSincePreviousFire +
-                      scaled_NumberOfFires100Yrs * Treatment_BA +
+                      scaled_NumberOfFires100Yrs * trt_ba +
                       (1|Cam) +
                       (1|Session),
                     family = binomial, 
@@ -430,22 +475,17 @@ toc()
 
 # Took 3 min to run
 
-CatDredge # Doesn't give me the delta AIC value for each model
-subset(CatDredge,delta <= 2,recalc.weights = FALSE) # Can't get this bit of code to work (prob because there's no delta AIC column)
+CatDredge 
+subset(CatDredge,delta <= 2,recalc.weights = FALSE) 
 subset(CatDredge, is.na(delta),recalc.weights = FALSE) # Find models that didn't converge
+
 summary(get.models(CatDredge, 1)[[1]])
 plot(predictorEffects(get.models(CatDredge, 1)[[1]]))
 simulateResiduals(get.models(CatDredge, 1)[[1]], plot = T)
 
-
 summary(get.models(CatDredge, 2)[[1]])
-summary(get.models(CatDredge, 3)[[1]])
-summary(get.models(CatDredge, 4)[[1]])
-summary(get.models(CatDredge, 5)[[1]])
-summary(get.models(CatDredge, 6)[[1]])
-summary(get.models(CatDredge, 7)[[1]])
-summary(get.models(CatDredge, 8)[[1]])
-summary(get.models(CatDredge, 9)[[1]])
+plot(predictorEffects(get.models(CatDredge, 2)[[1]]))
+
 
 
 # ____________________________________________________________________________________
@@ -456,7 +496,7 @@ summary(get.models(CatDredge, 9)[[1]])
 
 # Check the distribution of the data
 hist(cam_df2$SWDet, 20) # Not that many zeros
-nrow(subset(cam_df2, SWDet == 0))
+nrow(subset(cam_df2, SWDet == 0)) # no zeroes
 
 # Do LocalPlacement and AvgNightsSinceBaited influence detections? 
 # If yes, they will be included as fixed effects in the global model.
@@ -511,21 +551,6 @@ evidence(SWTable1,
 
 
 ## SW make some exploratory plots
-str(cam_df2)
-which(colnames(cam_df2) == "SWNotDet")
-which(colnames(cam_df2) == "HabitatType")
-which(colnames(cam_df2) == "LocalPlacement")
-which(colnames(cam_df2) == "LandscapePlacement")
-which(colnames(cam_df2) == "BurnTreatment")
-which(colnames(cam_df2) == "BurnSession")
-which(colnames(cam_df2) == "FireSeverity")
-which(colnames(cam_df2) == "Treatment_BA")
-
-cam_df2_long = reshape2::melt(cam_df2, id.vars = c(1:27,32, 37, 38, 41, 42, 44, 6))
-head(cam_df2_long)
-str(cam_df2_long)
-levels(cam_df2_long$variable)
-
 ggplot(subset(cam_df2_long, variable %in% 
                 c("NumberOfFires100Yrs",
                   "YrsSincePreviousFire",
@@ -545,16 +570,16 @@ ggplot(subset(cam_df2_long, variable %in%
 
 ## SW global model
 SWGlobal = glmmTMB(cbind(SWDet,SWNotDet) ~ 
-                      LocalPlacement +
-                      HabitatType +
-                      scaled_DistanceNearestFarm * Treatment_BA +
-                      scaled_DistanceNearestTown * Treatment_BA + 
-                      scaled_DistanceNearestRoad * Treatment_BA + 
-                      scaled_TPI100 * Treatment_BA + 
-                      scaled_NDVI100 * Treatment_BA +
-                      scaled_PercentAreaBurnt * Treatment_BA +
+                    #  LocalPlacement +
+                      HabitatType_num +
+                      scaled_DistanceNearestFarm * trt_ba +
+                      scaled_DistanceNearestTown * trt_ba + 
+                      scaled_DistanceNearestRoad * trt_ba + 
+                      scaled_TPI100 * trt_ba + 
+                      scaled_NDVI100 * trt_ba +
+                      scaled_PercentAreaBurnt * trt_ba +
                       scaled_YrsSincePreviousFire +
-                      scaled_NumberOfFires100Yrs * Treatment_BA +
+                      scaled_NumberOfFires100Yrs * trt_ba +
                       (1|Cam) +
                       (1|Session),
                     family = binomial, 
@@ -670,21 +695,6 @@ evidence(RooTable1,
 
 
 ## Make some exploratory plots
-str(cam_df2)
-which(colnames(cam_df2) == "RooNotDet")
-which(colnames(cam_df2) == "HabitatType")
-which(colnames(cam_df2) == "LocalPlacement")
-which(colnames(cam_df2) == "LandscapePlacement")
-which(colnames(cam_df2) == "BurnTreatment")
-which(colnames(cam_df2) == "BurnSession")
-which(colnames(cam_df2) == "FireSeverity")
-which(colnames(cam_df2) == "Treatment_BA")
-
-cam_df2_long = reshape2::melt(cam_df2, id.vars = c(1:27,32, 37, 38, 41, 42, 44, 6))
-head(cam_df2_long)
-str(cam_df2_long)
-levels(cam_df2_long$variable)
-
 ggplot(subset(cam_df2_long, variable %in% 
                 c("NumberOfFires100Yrs",
                   "YrsSincePreviousFire",
@@ -706,15 +716,15 @@ ggplot(subset(cam_df2_long, variable %in%
 RooGlobal = glmmTMB(cbind(RooDet,RooNotDet) ~ 
                       LocalPlacement +
                       scaled_AvgNightsSinceBaited +
-                      HabitatType +
-                      scaled_DistanceNearestFarm * Treatment_BA +
-                      scaled_DistanceNearestTown * Treatment_BA + 
-                      scaled_DistanceNearestRoad * Treatment_BA + 
-                      scaled_TPI100 * Treatment_BA + 
-                      scaled_NDVI100 * Treatment_BA +
-                      scaled_PercentAreaBurnt * Treatment_BA +
+                      HabitatType_num +
+                      scaled_DistanceNearestFarm * trt_ba +
+                      scaled_DistanceNearestTown * trt_ba + 
+                      scaled_DistanceNearestRoad * trt_ba + 
+                      scaled_TPI100 * trt_ba + 
+                      scaled_NDVI100 * trt_ba +
+                      scaled_PercentAreaBurnt * trt_ba +
                       scaled_YrsSincePreviousFire +
-                      scaled_NumberOfFires100Yrs * Treatment_BA +
+                      scaled_NumberOfFires100Yrs * trt_ba +
                       (1|Cam) +
                       (1|Session),
                     family = binomial, 
@@ -762,12 +772,14 @@ toc()
 RooDredge
 subset(RooDredge,delta <= 2,recalc.weights = FALSE)
 subset(RooDredge, is.na(delta),recalc.weights = FALSE) # Find models that didn't converge
+
 summary(get.models(RooDredge, 1)[[1]])
 plot(predictorEffects(get.models(RooDredge, 1)[[1]]))
 simulateResiduals(get.models(RooDredge, 1)[[1]], plot = T)
 
 
 summary(get.models(RooDredge, 2)[[1]])
+plot(predictorEffects(get.models(RooDredge, 2)[[1]]))
 
 
 # Two models with delta AICs <2
@@ -835,21 +847,6 @@ evidence(SmMamTable1,
 
 
 ## Make some exploratory plots
-str(cam_df2)
-which(colnames(cam_df2) == "SmMamNotDet")
-which(colnames(cam_df2) == "HabitatType")
-which(colnames(cam_df2) == "LocalPlacement")
-which(colnames(cam_df2) == "LandscapePlacement")
-which(colnames(cam_df2) == "BurnTreatment")
-which(colnames(cam_df2) == "BurnSession")
-which(colnames(cam_df2) == "FireSeverity")
-which(colnames(cam_df2) == "Treatment_BA")
-
-cam_df2_long = reshape2::melt(cam_df2, id.vars = c(1:27,32, 37, 38, 41, 42, 44, 6))
-head(cam_df2_long)
-str(cam_df2_long)
-levels(cam_df2_long$variable)
-
 ggplot(subset(cam_df2_long, variable %in% 
                 c("NumberOfFires100Yrs",
                   "YrsSincePreviousFire",
@@ -869,16 +866,16 @@ ggplot(subset(cam_df2_long, variable %in%
 
 ## SmMam global model
 SmMamGlobal = glmmTMB(cbind(SmMamDet,SmMamNotDet) ~ 
-                      LocalPlacement +
-                      HabitatType +
-                      scaled_DistanceNearestFarm * Treatment_BA +
-                      scaled_DistanceNearestTown * Treatment_BA + 
-                      scaled_DistanceNearestRoad * Treatment_BA + 
-                      scaled_TPI100 * Treatment_BA + 
-                      scaled_NDVI100 * Treatment_BA +
-                      scaled_PercentAreaBurnt * Treatment_BA +
+                      #LocalPlacement +
+                      HabitatType_num +
+                      scaled_DistanceNearestFarm * trt_ba +
+                      scaled_DistanceNearestTown * trt_ba + 
+                      scaled_DistanceNearestRoad * trt_ba + 
+                      scaled_TPI100 * trt_ba + 
+                      scaled_NDVI100 * trt_ba +
+                      scaled_PercentAreaBurnt * trt_ba +
                       scaled_YrsSincePreviousFire +
-                      scaled_NumberOfFires100Yrs * Treatment_BA +
+                      scaled_NumberOfFires100Yrs * trt_ba +
                       (1|Cam) +
                       (1|Session),
                     family = binomial, 
@@ -924,6 +921,7 @@ toc()
 SmMamDredge
 subset(SmMamDredge,delta <= 2,recalc.weights = FALSE) 
 subset(SmMamDredge, is.na(delta),recalc.weights = FALSE) # Find models that didn't converge
+
 summary(get.models(SmMamDredge, 1)[[1]])
 plot(predictorEffects(get.models(SmMamDredge, 1)[[1]]))
 simulateResiduals(get.models(SmMamDredge, 1)[[1]], plot = T)
@@ -931,6 +929,7 @@ simulateResiduals(get.models(SmMamDredge, 1)[[1]], plot = T)
 
 summary(get.models(SmMamDredge, 2)[[1]])
 summary(get.models(SmMamDredge, 3)[[1]])
+plot(predictorEffects(get.models(SmMamDredge, 3)[[1]]))
 summary(get.models(SmMamDredge, 4)[[1]])
 summary(get.models(SmMamDredge, 5)[[1]])
 summary(get.models(SmMamDredge, 6)[[1]])
@@ -1000,21 +999,6 @@ evidence(MedMarTable1,
 # Neither are <0.05.
 
 ## Make some exploratory plots
-str(cam_df2)
-which(colnames(cam_df2) == "MedMarNotDet")
-which(colnames(cam_df2) == "HabitatType")
-which(colnames(cam_df2) == "LocalPlacement")
-which(colnames(cam_df2) == "LandscapePlacement")
-which(colnames(cam_df2) == "BurnTreatment")
-which(colnames(cam_df2) == "BurnSession")
-which(colnames(cam_df2) == "FireSeverity")
-which(colnames(cam_df2) == "Treatment_BA")
-
-cam_df2_long = reshape2::melt(cam_df2, id.vars = c(1:27,32, 37, 38, 41, 42, 44, 6))
-head(cam_df2_long)
-str(cam_df2_long)
-levels(cam_df2_long$variable)
-
 ggplot(subset(cam_df2_long, variable %in% 
                 c("NumberOfFires100Yrs",
                   "YrsSincePreviousFire",
@@ -1035,15 +1019,15 @@ ggplot(subset(cam_df2_long, variable %in%
 ## Medium marsupial global model
 MedMarGlobal = glmmTMB(cbind(MedMarDet,MedMarNotDet) ~ 
                         #LocalPlacement +
-                        #HabitatType +
-                        #scaled_DistanceNearestFarm * Treatment_BA +
-                        scaled_DistanceNearestTown * Treatment_BA + 
-                        scaled_DistanceNearestRoad * Treatment_BA + 
-                        scaled_TPI100 * Treatment_BA + 
-                        scaled_NDVI100 * Treatment_BA +
-                        scaled_PercentAreaBurnt * Treatment_BA +
-                        #scaled_YrsSincePreviousFire +
-                        #scaled_NumberOfFires100Yrs * Treatment_BA +
+                        #HabitatType_num +
+                        scaled_DistanceNearestFarm * trt_ba + # TD note: this was excluded
+                        scaled_DistanceNearestTown * trt_ba + 
+                        scaled_DistanceNearestRoad * trt_ba + 
+                        scaled_TPI100 * trt_ba + 
+                        scaled_NDVI100 * trt_ba +
+                        scaled_PercentAreaBurnt * trt_ba +
+                        scaled_YrsSincePreviousFire + # TD note: this was excluded
+                        scaled_NumberOfFires100Yrs * trt_ba + # TD note: this was excluded
                         (1|Cam) +
                         (1|Session),
                       family = binomial, 
@@ -1090,7 +1074,8 @@ toc()
 
 MedMarDredge # Doesn't give me the delta AIC value for each model
 subset(MedMarDredge,delta <= 2,recalc.weights = FALSE) 
-subset(MedMarDredge, is.na(delta),recalc.weights = FALSE) # Find models that didn't converge
+subset(MedMarDredge, is.na(AICc),recalc.weights = FALSE) # Find models that didn't converge
+
 summary(get.models(MedMarDredge, 1)[[1]])
 plot(predictorEffects(get.models(MedMarDredge, 1)[[1]]))
 simulateResiduals(get.models(MedMarDredge, 1)[[1]], plot = T)
@@ -1105,7 +1090,3 @@ summary(get.models(MedMarDredge, 6)[[1]])
 # Six models with delta AIC <2
 
 # ____________________________________________________________________________________
-
-
-
-
